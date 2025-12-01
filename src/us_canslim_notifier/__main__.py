@@ -1,5 +1,6 @@
-"""Entry point for running the bot as a module: python -m can_slim_bot"""
+"""Entry point for running the bot as a module: python -m us_canslim_notifier"""
 
+import sys
 import time
 from datetime import datetime, timedelta
 
@@ -7,8 +8,8 @@ from .bot import CANSLIMDetector
 from .settings import settings
 
 
-def main():
-    """Main entry point."""
+def run_bot():
+    """Run the Telegram bot."""
     if not settings.is_configured():
         print("⚠️  To configure .env file:")
         print("   1. Copy .env.example to .env")
@@ -66,6 +67,37 @@ Start time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
     except KeyboardInterrupt:
         print("\n\n⛔ Shutting down")
         detector.send_telegram_message("⛔ CAN SLIM Bot stopped")
+
+
+def run_backtest():
+    """Run backtesting with settings from .env."""
+    from .backtest import run_backtest as _run_backtest
+
+    print("🧪 Starting backtest with .env settings...\n")
+    _run_backtest()
+
+
+def main():
+    """Main entry point."""
+    if len(sys.argv) > 1:
+        command = sys.argv[1].lower()
+        if command == "backtest":
+            run_backtest()
+            return
+        elif command in ("--help", "-h", "help"):
+            print("Usage: python -m us_canslim_notifier [command]")
+            print()
+            print("Commands:")
+            print("  (none)     Run Telegram bot")
+            print("  backtest   Run backtesting")
+            print("  help       Show this message")
+            return
+        else:
+            print(f"Unknown command: {command}")
+            print("Use 'help' for available commands.")
+            return
+
+    run_bot()
 
 
 if __name__ == "__main__":

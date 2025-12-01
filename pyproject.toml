@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "can-slim-bot"
+name = "us-canslim-notifier"
 version = "1.0.0"
 description = "William O'Neil's CAN SLIM Trading Signal Detection System"
 readme = "README.md"
@@ -41,14 +41,14 @@ dev = [
 ]
 
 [project.scripts]
-can-slim-bot = "can_slim_bot.__main__:main"
+us-canslim-notifier = "us_canslim_notifier.__main__:main"
 
 [project.urls]
-Homepage = "https://github.com/dev-minimalism/can-slim-bot"
-Repository = "https://github.com/dev-minimalism/can-slim-bot"
+Homepage = "https://github.com/dev-minimalism/us-canslim-notifier"
+Repository = "https://github.com/dev-minimalism/us-canslim-notifier"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/can_slim_bot"]
+packages = ["src/us_canslim_notifier"]
 
 [tool.black]
 line-length = 88

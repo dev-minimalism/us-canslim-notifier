@@ -1,4 +1,4 @@
-# CAN SLIM Bot
+# US CAN SLIM Notifier
 
 William O'Neil의 CAN SLIM 투자 전략을 기반으로 한 미국 주식 매매 신호 탐지 시스템입니다.
 
@@ -27,8 +27,8 @@ William O'Neil의 CAN SLIM 투자 전략을 기반으로 한 미국 주식 매�
 
 ```bash
 # 저장소 클론
-git clone https://github.com/dev-minimalism/can-slim-bot.git
-cd can-slim-bot
+git clone https://github.com/dev-minimalism/us-canslim-notifier.git
+cd us-canslim-notifier
 
 # 가상환경 생성 및 활성화
 python -m venv .venv
@@ -48,10 +48,10 @@ cp .env.example .env
 
 ```bash
 # 모듈로 실행
-python -m can_slim_bot
+python -m us_canslim_notifier
 
 # 또는 CLI 명령어
-can-slim-bot
+us-canslim-notifier
 ```
 
 ### 텔레그램 명령어
@@ -69,10 +69,20 @@ can-slim-bot
 
 ### 백테스트
 
-```python
-from can_slim_bot.backtest import run_backtest, BacktestConfig
+```bash
+# CLI로 실행 (.env 설정 사용)
+python -m us_canslim_notifier backtest
 
-# 기본 설정으로 실행
+# 또는
+us-canslim-notifier backtest
+```
+
+Python 코드에서 직접 실행:
+
+```python
+from us_canslim_notifier.backtest import run_backtest, BacktestConfig
+
+# .env 설정으로 실행
 run_backtest()
 
 # 커스텀 설정
@@ -90,23 +100,33 @@ run_backtest(config)
 `.env` 파일에서 설정:
 
 ```env
-# 필수
+# 필수 (봇 실행 시)
 TELEGRAM_TOKEN=your_bot_token
 CHAT_ID=your_chat_id
 
-# 선택 (기본값)
+# CAN SLIM 파라미터 (선택)
 SCAN_INTERVAL=1800
 MIN_QTR_EPS_GROWTH=25.0
 MIN_ANNUAL_EPS_GROWTH=25.0
 MIN_INST_OWNERSHIP_PCT=10.0
 MIN_RS_VS_INDEX_PERF=10.0
+
+# 백테스트 설정 (선택)
+BACKTEST_START_DATE=2020-01-01
+BACKTEST_END_DATE=2024-12-31
+BACKTEST_INITIAL_CAPITAL=100000
+BACKTEST_POSITION_SIZE_PCT=0.1
+# BACKTEST_TICKERS=AAPL,MSFT,NVDA  # 미지정 시 기본 20개 종목
+BACKTEST_STOP_LOSS_PCT=0.08
+BACKTEST_TAKE_PROFIT_PCT=0.20
+BACKTEST_HOLDING_DAYS_MAX=30
 ```
 
 ## Project Structure
 
 ```
-can-slim-bot/
-├── src/can_slim_bot/
+us-canslim-notifier/
+├── src/us_canslim_notifier/
 │   ├── __main__.py      # 진입점
 │   ├── bot.py           # 메인 봇 클래스
 │   ├── settings.py      # 환경 설정

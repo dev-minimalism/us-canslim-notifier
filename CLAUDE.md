@@ -18,17 +18,26 @@ pip install -e .
 ### Run the Bot
 ```bash
 # As module
-python -m can_slim_bot
+python -m us_canslim_notifier
 
 # Or via entry point (after pip install)
-can-slim-bot
+us-canslim-notifier
 ```
 
 ### Run Backtesting
-```python
-from can_slim_bot.backtest import run_backtest, BacktestConfig
+```bash
+# CLI (uses .env settings)
+python -m us_canslim_notifier backtest
 
-# With default config
+# Or via entry point
+us-canslim-notifier backtest
+```
+
+Python:
+```python
+from us_canslim_notifier.backtest import run_backtest, BacktestConfig
+
+# With .env settings
 run_backtest()
 
 # With custom config
@@ -51,11 +60,11 @@ ruff check src/
 ## Project Structure
 
 ```
-can-slim-bot/
+us-canslim-notifier/
 ├── src/
-│   └── can_slim_bot/
+│   └── us_canslim_notifier/
 │       ├── __init__.py
-│       ├── __main__.py      # Entry point (python -m can_slim_bot)
+│       ├── __main__.py      # Entry point (python -m us_canslim_notifier)
 │       ├── bot.py           # CANSLIMDetector class
 │       ├── settings.py      # Environment variable loading
 │       └── backtest/
@@ -72,19 +81,20 @@ can-slim-bot/
 
 ### Core Modules
 
-**`src/can_slim_bot/bot.py`** - `CANSLIMDetector` class:
+**`src/us_canslim_notifier/bot.py`** - `CANSLIMDetector` class:
 - Telegram command listener (background thread)
 - US market time detection (22:30-06:00 KST)
 - Position tracking with automatic stop-loss/take-profit
 - Concurrent scan prevention via threading lock
 
-**`src/can_slim_bot/settings.py`** - `Settings` class:
+**`src/us_canslim_notifier/settings.py`** - `Settings` class:
 - Environment variable loading via python-dotenv
 - All configurable parameters with defaults
 
-**`src/can_slim_bot/backtest/`** - Backtesting module:
-- `BacktestConfig`: Dataclass for backtest parameters
+**`src/us_canslim_notifier/backtest/`** - Backtesting module:
+- `BacktestConfig`: Dataclass with environment variable support (BACKTEST_* in .env)
 - `ONeilBacktester`: Simulation runner with CAGR reporting
+- `run_backtest()`: Convenience function to run backtest
 
 ### Data Source
 - US stocks: `yfinance` (price data + fundamentals via `Ticker.info`)
