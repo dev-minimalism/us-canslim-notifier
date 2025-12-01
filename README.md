@@ -54,6 +54,35 @@ python -m us_canslim_notifier
 us-canslim-notifier
 ```
 
+### 백그라운드 실행 (서버)
+
+```bash
+nohup python -m us_canslim_notifier > bot.log 2>&1 &
+```
+
+설명:
+- `nohup` - 터미널 종료해도 계속 실행
+- `> bot.log` - stdout을 bot.log에 저장
+- `2>&1` - stderr도 같은 파일에 저장
+- `&` - 백그라운드 실행
+
+날짜별 로그 파일:
+```bash
+nohup python -m us_canslim_notifier > bot_$(date +%Y%m%d).log 2>&1 &
+```
+
+유용한 명령어:
+```bash
+# 실행 확인
+ps aux | grep us_canslim_notifier
+
+# 로그 실시간 확인
+tail -f bot.log
+
+# 프로세스 종료
+pkill -f us_canslim_notifier
+```
+
 ### 텔레그램 명령어
 
 | 명령어 | 설명 |
