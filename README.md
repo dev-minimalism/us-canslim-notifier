@@ -68,7 +68,8 @@ nohup python -m us_canslim_notifier > bot.log 2>&1 &
 
 날짜별 로그 파일:
 ```bash
-nohup python -m us_canslim_notifier > bot_$(date +%Y%m%d).log 2>&1 &
+mkdir -p logs
+nohup python -u -m us_canslim_notifier > logs/bot_$(date +%Y%m%d).log 2>&1 &
 ```
 
 유용한 명령어:
