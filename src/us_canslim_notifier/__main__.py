@@ -33,7 +33,7 @@ def run_bot():
 🤖 <b>CAN SLIM Bot Started</b>
 
 📊 Watchlist: {len(detector.watchlist)} stocks
-📍 Open positions: {len(detector.positions)}
+📍 Open positions: {len(detector.get_positions())}
 ⏰ Scan interval: {settings.SCAN_INTERVAL // 60} min
 🕐 Status: {status_text}
 
