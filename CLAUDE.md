@@ -67,10 +67,15 @@ us-canslim-notifier/
 │       ├── __main__.py      # Entry point (python -m us_canslim_notifier)
 │       ├── bot.py           # CANSLIMDetector class
 │       ├── settings.py      # Environment variable loading
+│       ├── database.py      # SSH tunnel + PostgreSQL connection
+│       ├── repository.py    # Position CRUD operations
 │       └── backtest/
 │           ├── __init__.py
 │           ├── config.py    # BacktestConfig dataclass
 │           └── runner.py    # ONeilBacktester class
+├── scripts/
+│   ├── init_db.py           # Database creation script
+│   └── test_db.py           # Connection test script
 ├── tests/
 ├── .env.example
 ├── pyproject.toml
@@ -84,12 +89,24 @@ us-canslim-notifier/
 **`src/us_canslim_notifier/bot.py`** - `CANSLIMDetector` class:
 - Telegram command listener (background thread)
 - US market time detection (22:30-06:00 KST)
-- Position tracking with automatic stop-loss/take-profit
+- Position tracking with automatic stop-loss/take-profit (DB-backed)
 - Concurrent scan prevention via threading lock
+- Duplicate alert prevention (skips if position exists)
 
 **`src/us_canslim_notifier/settings.py`** - `Settings` class:
 - Environment variable loading via python-dotenv
+- SSH tunnel and PostgreSQL connection settings
 - All configurable parameters with defaults
+
+**`src/us_canslim_notifier/database.py`** - `DatabaseManager` class:
+- SSH tunnel via paramiko for secure DB access
+- PostgreSQL connection with psycopg2
+- Schema initialization (positions, trade_history tables)
+
+**`src/us_canslim_notifier/repository.py`** - `PositionRepository` class:
+- Position CRUD operations
+- Trade history tracking
+- Performance summary (win rate, avg P/L, etc.)
 
 **`src/us_canslim_notifier/backtest/`** - Backtesting module:
 - `BacktestConfig`: Dataclass with environment variable support (BACKTEST_* in .env)
@@ -115,13 +132,18 @@ us-canslim-notifier/
 
 ### Runtime Data Files (gitignored)
 - `watchlist.json` - Persisted watchlist `{"tickers": [...], "updated_at": "..."}`
-- `positions.json` - Open positions tracking
+
+### Database Tables
+- `positions` - Open/closed positions with entry/exit prices, stop-loss, take-profit
+- `trade_history` - Closed trade records for performance analysis
 
 ### Telegram Commands
-`/scan`, `/check [ticker]`, `/positions`, `/close [ticker]`, `/add [ticker]`, `/remove [ticker]`, `/list`, `/status`, `/help`
+`/scan`, `/check [ticker]`, `/positions`, `/close [ticker]`, `/performance`, `/add [ticker]`, `/remove [ticker]`, `/list`, `/status`, `/help`
 
 ## Key Patterns
 
 - Scan operations run in separate threads to avoid blocking the command listener
 - M (Market) filter blocks scans during market downtrends
 - Positions auto-close at -8% stop-loss, +20% take-profit, or 30-day expiry
+- Duplicate alerts are prevented when position already exists for a ticker
+- SSH tunnel is used for secure remote PostgreSQL access

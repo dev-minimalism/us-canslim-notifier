@@ -16,11 +16,13 @@ William O'Neil의 CAN SLIM 투자 전략을 기반으로 한 미국 주식 매�
 - **기술적 신호 탐지**
   - 피벗 포인트 돌파 (20일 고점 + 거래량 50%+ 급증)
 
-- **자동 포지션 관리**
+- **자동 포지션 관리 (DB 기반)**
+  - PostgreSQL + SSH 터널 지원
   - 손절 -8%, 익절 +20%, 30일 만료
+  - 트레이딩 성과 추적
 
 - **텔레그램 봇 연동**
-  - 실시간 알림
+  - 실시간 알림 (중복 알림 방지)
   - 명령어로 종목 관리
 
 ## Installation
@@ -91,6 +93,8 @@ pkill -f us_canslim_notifier
 | `/scan` | 전체 스캔 |
 | `/check NVDA` | 종목 CAN SLIM 팩터 조회 |
 | `/positions` | 현재 포지션 보기 |
+| `/close AAPL` | 포지션 수동 종료 |
+| `/performance` | 트레이딩 성과 보기 |
 | `/add AAPL` | 종목 추가 |
 | `/remove AAPL` | 종목 제거 |
 | `/list` | 감시 종목 목록 |
@@ -150,7 +154,36 @@ BACKTEST_POSITION_SIZE_PCT=0.1
 BACKTEST_STOP_LOSS_PCT=0.08
 BACKTEST_TAKE_PROFIT_PCT=0.20
 BACKTEST_HOLDING_DAYS_MAX=30
+
+# PostgreSQL 설정 (포지션 관리용)
+SSH_HOST=your_ssh_host
+SSH_PORT=22
+SSH_USER=your_ssh_user
+SSH_KEY_PATH=~/.ssh/id_rsa
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=us_canslim_notifier_db
+DB_USER=your_db_user
+DB_PASSWORD=your_db_password
 ```
+
+## Database Setup
+
+PostgreSQL을 사용한 포지션 관리를 위해 DB 설정이 필요합니다.
+
+```bash
+# 1. DB 생성 (서버에서 직접 또는 스크립트로)
+python scripts/init_db.py
+
+# 2. 연결 테스트
+python scripts/test_db.py
+```
+
+DB 스키마:
+- `positions` - 열린/닫힌 포지션 저장
+- `trade_history` - 종료된 거래 이력 (성과 분석용)
+
+> DB 설정이 없으면 포지션 관리 기능이 비활성화됩니다.
 
 ## Project Structure
 
@@ -160,7 +193,12 @@ us-canslim-notifier/
 │   ├── __main__.py      # 진입점
 │   ├── bot.py           # 메인 봇 클래스
 │   ├── settings.py      # 환경 설정
+│   ├── database.py      # SSH 터널 + DB 연결
+│   ├── repository.py    # 포지션 CRUD
 │   └── backtest/        # 백테스트 모듈
+├── scripts/
+│   ├── init_db.py       # DB 생성 스크립트
+│   └── test_db.py       # 연결 테스트
 ├── tests/
 ├── .env.example
 ├── pyproject.toml

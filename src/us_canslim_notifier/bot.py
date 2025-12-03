@@ -7,7 +7,7 @@ Features:
 - /check [ticker] command for factor lookup
 - Pivot point breakout pattern detection
 - Telegram command-based stock management
-- Position management with stop-loss/take-profit
+- Position management with stop-loss/take-profit (DB-backed)
 """
 
 import json
@@ -24,6 +24,8 @@ import requests
 import yfinance as yf
 
 from .settings import settings
+from .database import init_db, get_db, close_db
+from .repository import position_repo
 
 warnings.filterwarnings("ignore")
 
@@ -36,7 +38,7 @@ class CANSLIMDetector:
         telegram_token: str,
         chat_id: str,
         watchlist_file: str = "watchlist.json",
-        positions_file: str = "positions.json",
+        use_db: bool = True,
     ):
         """
         Initialize the detector.
@@ -45,13 +47,13 @@ class CANSLIMDetector:
             telegram_token: Telegram bot token
             chat_id: Telegram chat ID
             watchlist_file: Watchlist storage file
-            positions_file: Position storage file
+            use_db: Use database for position management
         """
         self.telegram_token = telegram_token
         self.chat_id = chat_id
         self.base_url = f"https://api.telegram.org/bot{telegram_token}"
         self.watchlist_file = watchlist_file
-        self.positions_file = positions_file
+        self.use_db = use_db
         self.last_update_id = 0
 
         # Concurrent scan prevention lock
@@ -65,13 +67,23 @@ class CANSLIMDetector:
         self.MIN_INST_OWNERSHIP_PCT = settings.MIN_INST_OWNERSHIP_PCT
         self.MIN_RS_VS_INDEX_PERF = settings.MIN_RS_VS_INDEX_PERF
 
-        # Load watchlist and positions
+        # Load watchlist
         self.watchlist = self.load_watchlist()
-        self.positions = self.load_positions()
-
         print("✅ Watchlist loaded")
         print(f"   🇺🇸 Stocks: {len(self.watchlist)}")
-        print(f"✅ Positions loaded: {len(self.positions)}")
+
+        # Initialize database if configured
+        if self.use_db and settings.is_db_configured():
+            print("\n🔌 Connecting to database...")
+            if init_db():
+                positions = position_repo.get_open_positions()
+                print(f"✅ Positions loaded from DB: {len(positions)}")
+            else:
+                print("⚠️  Database connection failed, falling back to file-based storage")
+                self.use_db = False
+        else:
+            self.use_db = False
+            print("⚠️  Database not configured, using file-based storage")
 
     # ========================================
     # Watchlist Management
@@ -146,68 +158,51 @@ class CANSLIMDetector:
         return msg
 
     # ========================================
-    # Position Management
+    # Position Management (DB-backed)
     # ========================================
 
-    def load_positions(self) -> List[Dict]:
-        """Load positions from file."""
-        if os.path.exists(self.positions_file):
-            try:
-                with open(self.positions_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    return data.get("positions", [])
-            except Exception as e:
-                print(f"⚠️  Failed to load positions: {e}")
+    def get_positions(self) -> List[Dict]:
+        """Get open positions from database."""
+        if self.use_db:
+            return position_repo.get_open_positions()
         return []
-
-    def save_positions(self) -> bool:
-        """Save positions to file."""
-        try:
-            data = {
-                "positions": self.positions,
-                "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            }
-            with open(self.positions_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-            return True
-        except Exception as e:
-            print(f"❌ Failed to save positions: {e}")
-            return False
 
     def add_position(
         self, ticker: str, entry_price: float, pattern: str, signal: Dict
     ):
-        """Add new position."""
-        position = {
-            "ticker": ticker,
-            "entry_price": entry_price,
-            "entry_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "pattern": pattern,
-            "stop_loss": entry_price * 0.92,  # -8% stop loss
-            "take_profit": entry_price * 1.20,  # +20% take profit
-            "signal": signal,
-        }
-        self.positions.append(position)
-        self.save_positions()
-        print(f"  📝 Position added: {ticker} @ ${entry_price:.2f}")
+        """Add new position to database."""
+        if self.use_db:
+            position_id = position_repo.add_position(
+                ticker=ticker,
+                entry_price=entry_price,
+                pattern=pattern,
+                signal=signal,
+            )
+            if position_id:
+                print(f"  📝 Position added (DB): {ticker} @ ${entry_price:.2f}")
+            else:
+                print(f"  ❌ Failed to add position: {ticker}")
+        else:
+            print(f"  ⚠️  Database not available, position not saved: {ticker}")
 
     def close_position(self, ticker: str, exit_price: float, reason: str) -> bool:
-        """Close position."""
-        for pos in self.positions:
-            if pos["ticker"] == ticker:
-                entry_price = pos["entry_price"]
-                profit_pct = ((exit_price - entry_price) / entry_price) * 100
+        """Close position in database."""
+        if not self.use_db:
+            print(f"  ⚠️  Database not available")
+            return False
 
-                entry_date = datetime.strptime(
-                    pos["entry_date"], "%Y-%m-%d %H:%M:%S"
-                )
-                holding_days = (datetime.now() - entry_date).days
+        result = position_repo.close_position(ticker, exit_price, reason)
+        if result:
+            profit_pct = result["profit_pct"]
+            holding_days = result["holding_days"]
+            entry_price = result["entry_price"]
+            pattern = result.get("pattern", "N/A")
 
-                msg = f"""
+            msg = f"""
 🇺🇸 <b>[Position Closed]</b>
 
 🏢 Ticker: <b>{ticker}</b>
-📊 Pattern: {pos['pattern']}
+📊 Pattern: {pattern}
 💰 Entry: ${entry_price:.2f}
 💵 Exit: ${exit_price:.2f}
 {'📈' if profit_pct > 0 else '📉'} P/L: {profit_pct:+.2f}%
@@ -217,24 +212,25 @@ class CANSLIMDetector:
 
 ⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 """
-                self.send_telegram_message(msg)
-                self.positions.remove(pos)
-                self.save_positions()
-                print(f"  ❌ Position closed: {ticker} ({reason}) {profit_pct:+.2f}%")
-                return True
+            self.send_telegram_message(msg)
+            print(f"  ❌ Position closed: {ticker} ({reason}) {profit_pct:+.2f}%")
+            return True
         return False
 
     def check_positions(self):
         """Check and manage open positions."""
-        if not self.positions:
+        positions = self.get_positions()
+        if not positions:
             return
 
-        print(f"\n📊 Checking positions... ({len(self.positions)})")
+        print(f"\n📊 Checking positions... ({len(positions)})")
 
-        for pos in self.positions.copy():
+        for pos in positions:
             ticker = pos["ticker"]
-            entry_price = pos["entry_price"]
-            entry_date = datetime.strptime(pos["entry_date"], "%Y-%m-%d %H:%M:%S")
+            entry_price = float(pos["entry_price"])
+            entry_date = pos["entry_date"]
+            stop_loss = float(pos["stop_loss"])
+            take_profit = float(pos["take_profit"])
             holding_days = (datetime.now() - entry_date).days
 
             try:
@@ -251,10 +247,10 @@ class CANSLIMDetector:
                     end="",
                 )
 
-                if current_price <= pos["stop_loss"]:
+                if current_price <= stop_loss:
                     print(" ⚠️ Stop loss!")
                     self.close_position(ticker, current_price, "Stop loss (-8%)")
-                elif current_price >= pos["take_profit"]:
+                elif current_price >= take_profit:
                     print(" ✅ Take profit!")
                     self.close_position(ticker, current_price, "Take profit (+20%)")
                 elif holding_days >= 30:
@@ -272,14 +268,18 @@ class CANSLIMDetector:
 
     def list_positions(self) -> str:
         """Get positions display string."""
-        if not self.positions:
+        positions = self.get_positions()
+        if not positions:
             return "📊 <b>Current Positions</b>\n\nNo open positions."
 
-        msg = f"📊 <b>Current Positions</b> ({len(self.positions)})\n\n"
+        msg = f"📊 <b>Current Positions</b> ({len(positions)})\n\n"
 
-        for i, pos in enumerate(self.positions, 1):
+        for i, pos in enumerate(positions, 1):
             ticker = pos["ticker"]
-            entry_date = datetime.strptime(pos["entry_date"], "%Y-%m-%d %H:%M:%S")
+            entry_price = float(pos["entry_price"])
+            entry_date = pos["entry_date"]
+            stop_loss = float(pos["stop_loss"])
+            take_profit = float(pos["take_profit"])
             holding_days = (datetime.now() - entry_date).days
 
             try:
@@ -287,9 +287,7 @@ class CANSLIMDetector:
 
                 if df is not None and len(df) > 0:
                     current_price = df["Close"].iloc[-1]
-                    profit_pct = (
-                        (current_price - pos["entry_price"]) / pos["entry_price"]
-                    ) * 100
+                    profit_pct = ((current_price - entry_price) / entry_price) * 100
                     profit_icon = "📈" if profit_pct > 0 else "📉"
                     current_info = f"${current_price:.2f} ({profit_icon}{profit_pct:+.2f}%)"
                 else:
@@ -299,15 +297,40 @@ class CANSLIMDetector:
 
             msg += f"""
 {i}. <b>{ticker}</b>
-   Entry: ${pos['entry_price']:.2f}
+   Entry: ${entry_price:.2f}
    Current: {current_info}
-   Pattern: {pos['pattern']}
+   Pattern: {pos.get('pattern', 'N/A')}
    Holding: {holding_days} days
-   Stop: ${pos['stop_loss']:.2f}
-   Target: ${pos['take_profit']:.2f}
+   Stop: ${stop_loss:.2f}
+   Target: ${take_profit:.2f}
 """
 
         return msg
+
+    def get_performance(self) -> str:
+        """Get trading performance summary."""
+        if not self.use_db:
+            return "📊 <b>Performance</b>\n\nDatabase not configured."
+
+        perf = position_repo.get_performance_summary()
+
+        if perf["total_trades"] == 0:
+            return "📊 <b>Performance</b>\n\nNo closed trades yet."
+
+        return f"""
+📊 <b>Trading Performance</b>
+
+📈 Total Trades: {perf['total_trades']}
+✅ Winning: {perf['winning_trades']} ({perf['win_rate']}%)
+❌ Losing: {perf['losing_trades']}
+
+💰 Avg P/L: {perf['avg_profit_pct']:+.2f}%
+💵 Total P/L: {perf['total_profit_pct']:+.2f}%
+🎯 Best Trade: {perf['max_profit_pct']:+.2f}%
+📉 Worst Trade: {perf['max_loss_pct']:+.2f}%
+
+📅 Avg Holding: {perf['avg_holding_days']:.1f} days
+"""
 
     # ========================================
     # Market Status
@@ -393,6 +416,7 @@ class CANSLIMDetector:
 /positions - View current positions
 /close [ticker] - Close position manually
   e.g. /close AAPL
+/performance - View trading performance
 
 <b>Watchlist:</b>
 /add [ticker] - Add stock
@@ -441,8 +465,7 @@ class CANSLIMDetector:
                 return "❌ Usage: /close [ticker]\ne.g. /close AAPL"
 
             ticker = parts[1].upper()
-            pos = next((p for p in self.positions if p["ticker"] == ticker), None)
-            if not pos:
+            if not position_repo.has_open_position(ticker):
                 return f"❌ Position not found: {ticker}"
 
             try:
@@ -456,6 +479,9 @@ class CANSLIMDetector:
                     return f"❌ Failed to get current price for {ticker}"
             except Exception as e:
                 return f"❌ Error closing position: {e}"
+
+        elif command == "/performance":
+            return self.get_performance()
 
         elif command == "/check":
             if len(parts) < 2:
@@ -840,17 +866,21 @@ class CANSLIMDetector:
                     print(f"  🔍 {ticker}...", end=" ")
                     signal = self.analyze_stock(ticker)
                     if signal:
+                        # Skip if position already exists (avoid duplicate alerts)
+                        if position_repo.has_open_position(ticker):
+                            print("⚪ (already in position)")
+                            continue
+
                         all_signals.append(signal)
                         msg = self.format_signal_message(signal)
                         self.send_telegram_message(msg)
 
-                        if not any(p["ticker"] == ticker for p in self.positions):
-                            self.add_position(
-                                ticker=ticker,
-                                entry_price=signal["current_price"],
-                                pattern=signal["pattern"],
-                                signal=signal,
-                            )
+                        self.add_position(
+                            ticker=ticker,
+                            entry_price=signal["current_price"],
+                            pattern=signal["pattern"],
+                            signal=signal,
+                        )
                         print("✅ Signal!")
                         time.sleep(1)
                     else:
