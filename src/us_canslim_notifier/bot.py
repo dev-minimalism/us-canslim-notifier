@@ -713,12 +713,20 @@ class CANSLIMDetector:
                 self.MARKET_INDEX_TICKER, start=start, end=end, progress=False
             )
 
+            # Handle MultiIndex columns from yfinance 0.2.x
+            stock_close = stock_hist["Close"]
+            if isinstance(stock_close, pd.DataFrame):
+                stock_close = stock_close.iloc[:, 0]
+            index_close = index_hist["Close"]
+            if isinstance(index_close, pd.DataFrame):
+                index_close = index_close.iloc[:, 0]
+
             stock_perf = (
-                stock_hist["Close"].iloc[-1] - stock_hist["Close"].iloc[0]
-            ) / stock_hist["Close"].iloc[0]
+                float(stock_close.iloc[-1]) - float(stock_close.iloc[0])
+            ) / float(stock_close.iloc[0])
             index_perf = (
-                index_hist["Close"].iloc[-1] - index_hist["Close"].iloc[0]
-            ) / index_hist["Close"].iloc[0]
+                float(index_close.iloc[-1]) - float(index_close.iloc[0])
+            ) / float(index_close.iloc[0])
 
             factors["L_StockPerf_1Y"] = stock_perf * 100
             factors["L_IndexPerf_1Y"] = index_perf * 100
