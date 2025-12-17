@@ -527,8 +527,12 @@ class CANSLIMDetector:
 
         return None
 
-    def _execute_scan_in_thread(self):
-        """Execute scan in separate thread."""
+    def _execute_scan_in_thread(self, manual: bool = False):
+        """Execute scan in separate thread.
+
+        Args:
+            manual: If True, send message even when no signals found
+        """
         if self.is_scanning:
             self.send_telegram_message(
                 "⚠️  Scan already in progress. Please wait for it to complete."
@@ -544,8 +548,7 @@ class CANSLIMDetector:
         try:
             self.is_scanning = True
             print("\n🔔 Scan command received - starting scan")
-            self.run_scan()
-            self.send_telegram_message("✅ Scan complete!")
+            self.run_scan(manual=manual)
         except Exception as e:
             print(f"❌ Scan error: {e}")
             self.send_telegram_message(f"❌ Scan error: {str(e)}")
@@ -579,6 +582,7 @@ class CANSLIMDetector:
                                     )
                                     scan_thread = threading.Thread(
                                         target=self._execute_scan_in_thread,
+                                        args=(True,),  # manual=True for /scan command
                                         daemon=True,
                                     )
                                     scan_thread.start()
@@ -846,8 +850,12 @@ class CANSLIMDetector:
     # Scanning
     # ========================================
 
-    def run_scan(self) -> List[Dict]:
-        """Run scan on watchlist."""
+    def run_scan(self, manual: bool = False) -> List[Dict]:
+        """Run scan on watchlist.
+
+        Args:
+            manual: If True, send message even when no signals found (for /scan command)
+        """
         print(f"\n{'=' * 60}")
         print("🔍 CAN SLIM Scan")
         print(f"📅 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -908,10 +916,11 @@ class CANSLIMDetector:
 
         if all_signals:
             summary_msg = f"✅ [Scan Complete] Found {len(all_signals)} buy signal(s)!"
-        else:
+            self.send_telegram_message(f"{summary_msg}\n⏰ ({scan_time_str})")
+        elif manual:
+            # Only send "no signals" message for manual /scan command
             summary_msg = "⚪ [Scan Complete] No new buy signals"
-
-        self.send_telegram_message(f"{summary_msg}\n⏰ ({scan_time_str})")
+            self.send_telegram_message(f"{summary_msg}\n⏰ ({scan_time_str})")
 
         return all_signals
 

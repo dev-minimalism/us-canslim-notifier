@@ -254,6 +254,21 @@ class DatabaseManager:
         finally:
             cursor.close()
 
+    def _check_connection(self) -> bool:
+        """Check if connection is alive, attempt reconnect if not."""
+        if self._connection is None:
+            return False
+
+        try:
+            # Simple query to check connection
+            with self._connection.cursor() as cursor:
+                cursor.execute("SELECT 1")
+            return True
+        except Exception:
+            print("  ⚠️  DB connection lost, attempting reconnect...")
+            self.close()
+            return self.connect()
+
     def execute(self, query: str, params: tuple = None) -> list:
         """
         Execute query and return results.
@@ -265,6 +280,9 @@ class DatabaseManager:
         Returns:
             List of rows as dicts
         """
+        if not self._check_connection():
+            return []
+
         with self.get_cursor() as cursor:
             cursor.execute(query, params)
             if cursor.description:
@@ -282,6 +300,9 @@ class DatabaseManager:
         Returns:
             Single row as dict or None
         """
+        if not self._check_connection():
+            return None
+
         with self.get_cursor() as cursor:
             cursor.execute(query, params)
             if cursor.description:
