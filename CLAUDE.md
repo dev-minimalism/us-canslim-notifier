@@ -4,124 +4,54 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-CAN SLIM Bot is a US stock trading signal detection system based on William O'Neil's CAN SLIM investment methodology. It monitors the US stock market, detects breakout patterns, and sends alerts via Telegram.
+US stock signal bot based on William O'Neil's CAN SLIM method. It scans a watchlist with `yfinance`, detects pivot breakouts, tracks paper positions, and talks to the user over Telegram. It also has a separate historical backtester. User-facing docs (README) are in Korean; code, comments and bot messages are in English.
 
 ## Commands
 
-### Setup
 ```bash
-cp .env.example .env
-# Edit .env with your TELEGRAM_TOKEN and CHAT_ID
-pip install -e .
-```
-
-### Run the Bot
-```bash
-# As module
-python -m us_canslim_notifier
-
-# Or via entry point (after pip install)
-us-canslim-notifier
-```
-
-### Run Backtesting
-```bash
-# CLI (uses .env settings)
-python -m us_canslim_notifier backtest
-
-# Or via entry point
-us-canslim-notifier backtest
-```
-
-Python:
-```python
-from us_canslim_notifier.backtest import run_backtest, BacktestConfig
-
-# With .env settings
-run_backtest()
-
-# With custom config
-config = BacktestConfig(
-    start_date="2020-01-01",
-    end_date="2024-12-31",
-    initial_capital=50000.0,
-)
-run_backtest(config)
-```
-
-### Development
-```bash
+cp .env.example .env            # set TELEGRAM_TOKEN and CHAT_ID (needed for the bot, not for backtest)
 pip install -e ".[dev]"
-pytest
+
+python -m us_canslim_notifier            # run the bot (same as: us-canslim-notifier)
+python -m us_canslim_notifier backtest   # run the backtest with BACKTEST_* values from .env
+
+pytest                                   # tests/ currently holds only __init__.py
+pytest tests/test_foo.py::test_bar       # single test (files must match test_*.py)
 black src/
 ruff check src/
+mypy src/
 ```
 
-## Project Structure
+Background run on a server (from README): `nohup python -u -m us_canslim_notifier > logs/bot_$(date +%Y%m%d).log 2>&1 &`
 
-```
-us-canslim-notifier/
-├── src/
-│   └── us_canslim_notifier/
-│       ├── __init__.py
-│       ├── __main__.py      # Entry point (python -m us_canslim_notifier)
-│       ├── bot.py           # CANSLIMDetector class
-│       ├── settings.py      # Environment variable loading
-│       └── backtest/
-│           ├── __init__.py
-│           ├── config.py    # BacktestConfig dataclass
-│           └── runner.py    # ONeilBacktester class
-├── tests/
-├── .env.example
-├── pyproject.toml
-└── CLAUDE.md
-```
+## Backtest config
+
+`backtest/config.py` defines the `BacktestConfig` dataclass and `default_config`. Each field reads its environment variable at instantiation time (via `default_factory`), so explicit constructor arguments override `.env`. Fundamental thresholds and `VOLUME_SURGE_MIN` / `BREAKOUT_MAX` reuse the live bot's env var names. Everything else uses `BACKTEST_*`. Units differ by field: the fundamentals, `volume_surge_pct` and `breakout_pct_max` are percents, the risk fields are fractions, and `above_52w_low_pct` is a multiplier. `.gitignore` only ignores a root-level `/config.py`; a bare `config.py` pattern previously hid this file from git.
 
 ## Architecture
 
-### Core Modules
+Two independent code paths share the same strategy idea but **not** the same code. A change to strategy logic usually needs to go into both:
 
-**`src/us_canslim_notifier/bot.py`** - `CANSLIMDetector` class:
-- Telegram command listener (background thread)
-- US market time detection (22:30-06:00 KST)
-- Position tracking with automatic stop-loss/take-profit
-- Concurrent scan prevention via threading lock
+| | Live bot (`bot.py`, `CANSLIMDetector`) | Backtest (`backtest/runner.py`, `ONeilBacktester`) |
+|---|---|---|
+| Config | `settings.py` `Settings` class | `BacktestConfig` (`BACKTEST_*` env vars) |
+| Fundamentals (C, A, I) | `yf.Ticker(...).info` per scan | Pre-screened once up front with the *current* `Ticker.info` (look-ahead bias: today's fundamentals filter historical trades) |
+| N / L / breakout | Computed from `info` + recent history | Precomputed rolling columns (52w high/low, avg volume, pivot high) over bulk-downloaded prices |
+| Exits | Hardcoded in `add_position` / `check_positions`: -8%, +20%, 30 days | Configurable `stop_loss_pct`, `take_profit_pct`, `holding_days_max` |
 
-**`src/us_canslim_notifier/settings.py`** - `Settings` class:
-- Environment variable loading via python-dotenv
-- All configurable parameters with defaults
+### Live bot flow
+- `__main__.py` `run_bot()` starts `start_command_listener()` (a daemon thread that long-polls Telegram `getUpdates` with raw `requests`, no bot library), then loops `run_scheduled_scan()` every `SCAN_INTERVAL` seconds.
+- `run_scheduled_scan()` runs the full scan only when `is_market_open()` is true; otherwise it only runs `check_positions()`.
+- `run_scan()`: M filter (`check_market_direction`, SPY vs 50/200 MA) blocks new entries in a downtrend → `check_positions()` → for each watchlist ticker, `get_can_slim_factors` (all of C/A/N/I/L must pass) then `detect_pivot_breakout`; a hit sends an alert and auto-opens a position via `add_position`.
+- `/scan` and `/check` run in their own threads. `scan_lock` is acquired non-blocking, so a second concurrent scan is rejected instead of queued.
+- Messages are sent with HTML parse mode (`<b>` tags), so escape `<`/`>`/`&` in dynamic text.
+- State is saved to JSON files in the **current working directory**: `watchlist.json` (`{"tickers": [...]}`; the legacy `{"us": [...]}` format is still read) and `positions.json`. Both are gitignored.
 
-**`src/us_canslim_notifier/backtest/`** - Backtesting module:
-- `BacktestConfig`: Dataclass with environment variable support (BACKTEST_* in .env)
-- `ONeilBacktester`: Simulation runner with CAGR reporting
-- `run_backtest()`: Convenience function to run backtest
+### Things that are easy to get wrong
+- `is_market_open()` uses naive `datetime.now()` and a fixed 22:30–06:00 window, so it assumes the host clock is KST and ignores US daylight saving time and holidays.
+- `Settings` reads env vars into class attributes at import time (`load_dotenv()` runs on import), so changing `os.environ` after import has no effect.
+- `STOP_LOSS_PERCENT`, `ANALYSIS_PERIOD` and `ANALYSIS_PERIOD_DAYS` are defined in `settings.py` and `.env.example` but nothing reads them. The live exit rules are the hardcoded values above.
+- yfinance `info` fields (`earningsQuarterlyGrowth`, `heldPercentInstitutions`, etc.) are often missing or `None`. The code treats a missing value as 0, which makes that factor fail.
 
-### Data Source
-- US stocks: `yfinance` (price data + fundamentals via `Ticker.info`)
-
-### CAN SLIM Implementation
-
-**Fundamental Filters:**
-- C: Quarterly EPS growth > 25%
-- A: Annual EPS growth > 25%
-- N: Near 52-week high (within 10%) and 50%+ above 52-week low
-- S: Shares outstanding (not filtered)
-- L: Relative strength vs SPY > 10%
-- I: Institutional ownership > 10%
-- M: Market direction (SPY above 50MA and 200MA)
-
-**Technical Signal:**
-- Pivot breakout: Price breaks 20-day high with 50%+ volume surge, within 5% of breakout level
-
-### Runtime Data Files (gitignored)
-- `watchlist.json` - Persisted watchlist `{"tickers": [...], "updated_at": "..."}`
-- `positions.json` - Open positions tracking
-
-### Telegram Commands
-`/scan`, `/check [ticker]`, `/positions`, `/close [ticker]`, `/add [ticker]`, `/remove [ticker]`, `/list`, `/status`, `/help`
-
-## Key Patterns
-
-- Scan operations run in separate threads to avoid blocking the command listener
-- M (Market) filter blocks scans during market downtrends
-- Positions auto-close at -8% stop-loss, +20% take-profit, or 30-day expiry
+## Telegram Commands
+`/scan`, `/check [ticker]`, `/positions`, `/close [ticker]`, `/add [ticker]`, `/remove [ticker]`, `/list`, `/status`, `/help`. All of them are handled in `CANSLIMDetector.process_command`.
