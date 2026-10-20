@@ -3,6 +3,7 @@
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org)
 [![yfinance](https://img.shields.io/badge/yfinance-410093)](https://pypi.org/project/yfinance/)
 [![Telegram](https://img.shields.io/badge/Telegram-Bot-26A5E4?logo=telegram&logoColor=white)](https://core.telegram.org/bots)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 William O'Neil의 CAN SLIM 투자 전략을 기반으로 한 미국 주식 매매 신호 탐지 시스템입니다.
 
