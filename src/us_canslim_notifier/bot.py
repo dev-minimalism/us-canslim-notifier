@@ -15,7 +15,8 @@ import os
 import threading
 import time
 import warnings
-from datetime import datetime, timedelta, time as dt_time
+from datetime import datetime, timedelta
+from datetime import time as dt_time
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -294,7 +295,7 @@ class CANSLIMDetector:
                     current_info = f"${current_price:.2f} ({profit_icon}{profit_pct:+.2f}%)"
                 else:
                     current_info = "Query failed"
-            except:
+            except Exception:
                 current_info = "Query failed"
 
             msg += f"""
@@ -884,7 +885,7 @@ class CANSLIMDetector:
             return []
 
         if not self.is_market_open():
-            print(f"\n⏸️  US market closed. Waiting for next session...")
+            print("\n⏸️  US market closed. Waiting for next session...")
             self.check_positions()
             return []
 
